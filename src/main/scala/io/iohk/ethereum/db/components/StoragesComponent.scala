@@ -31,5 +31,7 @@ trait StoragesComponent {
     val transactionMappingStorage: TransactionMappingStorage
 
     val pruningMode: PruningMode
+
+    val knownNodesStorage: KnownNodesStorage
   }
 }

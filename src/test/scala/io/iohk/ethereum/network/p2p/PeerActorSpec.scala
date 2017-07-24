@@ -1,6 +1,7 @@
 package io.iohk.ethereum.network.p2p
 
 import java.net.{InetSocketAddress, URI}
+import java.security.SecureRandom
 
 import com.miguno.akka.testing.VirtualTime
 import io.iohk.ethereum.utils.BlockchainConfig
@@ -14,6 +15,7 @@ import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.ByteString
 import io.iohk.ethereum.blockchain.sync.EphemBlockchainTestSetup
 import io.iohk.ethereum.db.components.Storages.PruningModeComponent
+import io.iohk.ethereum.crypto.generateKeyPair
 import io.iohk.ethereum.{Fixtures, Mocks, Timeouts, crypto}
 import io.iohk.ethereum.db.components.{SharedEphemDataSources, Storages}
 import io.iohk.ethereum.db.storage.pruning.{ArchivePruning, PruningMode}
@@ -34,10 +36,16 @@ import io.iohk.ethereum.network.rlpx.RLPxConnectionHandler
 import io.iohk.ethereum.network.rlpx.RLPxConnectionHandler.RLPxConfiguration
 import io.iohk.ethereum.nodebuilder.SecureRandomBuilder
 import io.iohk.ethereum.utils.{Config, NodeStatus, ServerStatus}
+import io.iohk.ethereum.network._
 import org.scalatest.{FlatSpec, Matchers}
+import org.spongycastle.crypto.AsymmetricCipherKeyPair
+import org.spongycastle.crypto.params.ECPublicKeyParameters
 import org.spongycastle.util.encoders.Hex
 
 class PeerActorSpec extends FlatSpec with Matchers {
+
+  val remoteNodeKey: AsymmetricCipherKeyPair = generateKeyPair(new SecureRandom)
+  val remoteNodeId: ByteString = ByteString(remoteNodeKey.getPublic.asInstanceOf[ECPublicKeyParameters].toNodeId)
 
   val blockchainConfig = BlockchainConfig(Config.config)
 
@@ -45,7 +53,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     rlpxConnection.expectMsgPF() {
       case RLPxConnectionHandler.SendMessage(hello: HelloEnc) => ()
@@ -73,16 +81,18 @@ class PeerActorSpec extends FlatSpec with Matchers {
 
     val peerMessageBus = system.actorOf(PeerEventBusActor.props)
     var rlpxConnection = TestProbe() // var as we actually need new instances
+    val knownNodesManager = TestProbe()
+
     val peer = TestActorRef(Props(new PeerActor(new InetSocketAddress("127.0.0.1", 0), _ => {
         rlpxConnection = TestProbe()
         rlpxConnection.ref
-      }, peerConf, peerMessageBus, Some(time.scheduler),
+      }, peerConf, peerMessageBus, knownNodesManager.ref, Some(time.scheduler),
       handshaker)))
 
     peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     rlpxConnection.expectMsgPF() {
       case RLPxConnectionHandler.SendMessage(hello: HelloEnc) => ()
@@ -95,10 +105,11 @@ class PeerActorSpec extends FlatSpec with Matchers {
   }
 
   it should "successfully connect to ETC peer" in new TestSetup {
-    peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
+    val uri = new URI(s"enode://${Hex.toHexString(remoteNodeId.toArray[Byte])}@localhost:9000")
+    peer ! PeerActor.ConnectTo(uri)
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     //Hello exchange
     val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
@@ -123,13 +134,16 @@ class PeerActorSpec extends FlatSpec with Matchers {
     //Check that peer is connected
     rlpxConnection.send(peer, RLPxConnectionHandler.MessageReceived(Ping()))
     rlpxConnection.expectMsg(RLPxConnectionHandler.SendMessage(Pong()))
+
+    knownNodesManager.expectMsg(KnownNodesManager.AddKnownNode(uri))
+    knownNodesManager.expectNoMsg()
   }
 
   it should "disconnect from non-ETC peer" in new TestSetup {
     peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
@@ -163,7 +177,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
@@ -191,10 +205,11 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peer ! PeerActor.HandleConnection(connection.ref, new InetSocketAddress("localhost", 9000))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.HandleConnection])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
     time.advance(5.seconds)
     rlpxConnection.expectMsg(Timeouts.normalTimeout, RLPxConnectionHandler.SendMessage(Disconnect(Disconnect.Reasons.TimeoutOnReceivingAMessage)))
+
   }
 
   it should "respond to fork block request during the handshake" in new TestSetup {
@@ -205,7 +220,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
@@ -233,7 +248,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peer ! PeerActor.DisconnectPeer(Disconnect.Reasons.TooManyPeers)
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
@@ -269,6 +284,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
       _ => rlpxConnection.ref,
       peerConf,
       peerMessageBus,
+      knownNodesManager.ref,
       None,
       Mocks.MockHandshakerAlwaysSucceeds(remoteStatus, 0, false)
     )))
@@ -276,7 +292,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
     peerActor ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
     rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+    rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
     rlpxConnection.send(peerActor, RLPxConnectionHandler.MessageReceived(Ping()))
     rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: PongEnc) => ()}
@@ -401,7 +417,7 @@ class PeerActorSpec extends FlatSpec with Matchers {
       peer ! PeerActor.ConnectTo(new URI("encode://localhost:9000"))
 
       rlpxConnection.expectMsgClass(classOf[RLPxConnectionHandler.ConnectTo])
-      rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished)
+      rlpxConnection.reply(RLPxConnectionHandler.ConnectionEstablished(remoteNodeId))
 
       val remoteHello = Hello(4, "test-client", Seq(Capability("eth", Versions.PV63.toByte)), 9000, ByteString("unused"))
       rlpxConnection.expectMsgPF() { case RLPxConnectionHandler.SendMessage(_: HelloEnc) => () }
@@ -433,11 +449,14 @@ class PeerActorSpec extends FlatSpec with Matchers {
 
     val peerMessageBus = system.actorOf(PeerEventBusActor.props)
 
+    val knownNodesManager = TestProbe()
+
     val peer = TestActorRef(Props(new PeerActor(
       new InetSocketAddress("127.0.0.1", 0),
       _ => rlpxConnection.ref,
       peerConf,
       peerMessageBus,
+      knownNodesManager.ref,
       Some(time.scheduler),
       handshaker)))
   }
