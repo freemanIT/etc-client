@@ -105,7 +105,7 @@ class PeerActor[R <: HandshakeResult](
       case RLPxConnectionHandler.MessageReceived(msg) =>
         // Processes the received message, cancels the timeout and processes a new message but only if the handshaker
         // handles the received message
-        handshaker.applyMessage(msg).foreach{ newHandshaker =>
+        handshaker.applyMessage(msg, peerId).foreach{ newHandshaker =>
           timeout.cancel()
           processHandshakerNextMessage(newHandshaker, rlpxConnection, numRetries)
         }
@@ -131,7 +131,7 @@ class PeerActor[R <: HandshakeResult](
   private def processHandshakerNextMessage(handshaker: Handshaker[R],
                                            rlpxConnection: RLPxConnection,
                                            numRetries: Int): Unit =
-    handshaker.nextMessage match {
+    handshaker.nextMessage(peerId) match {
       case Right(NextMessage(msgToSend, timeoutTime)) =>
         rlpxConnection.sendMessage(msgToSend)
         val newTimeout = scheduler.scheduleOnce(timeoutTime, self, ResponseTimeout)

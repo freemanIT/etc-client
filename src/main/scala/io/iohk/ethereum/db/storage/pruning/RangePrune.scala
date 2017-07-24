@@ -11,12 +11,12 @@ trait RangePrune extends Logger {
     * @return resulting PruneResult
     */
   def pruneBetween(start: BigInt, end: BigInt, pruneFn: BigInt => Int): PruneResult = {
-    log.debug(s"Pruning start for range $start - $end")
+//    log.debug(s"Pruning start for range $start - $end")
     val prunedCount = (start until end).foldLeft(0) { (acc, bn) =>
       acc + pruneFn(bn)
     }
     val result = PruneResult(end - 1, prunedCount)
-    log.debug(s"Pruning finished for range $start - $end, result $result")
+//    log.debug(s"Pruning finished for range $start - $end, result $result")
     result
   }
 }

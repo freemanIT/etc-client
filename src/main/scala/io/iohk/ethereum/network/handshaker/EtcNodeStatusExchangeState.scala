@@ -1,6 +1,7 @@
 package io.iohk.ethereum.network.handshaker
 
 import io.iohk.ethereum.network.EtcPeerManagerActor.PeerInfo
+import io.iohk.ethereum.network.PeerId
 import io.iohk.ethereum.network.handshaker.Handshaker.NextMessage
 import io.iohk.ethereum.network.p2p.Message
 import io.iohk.ethereum.network.p2p.messages.CommonMessages.Status
@@ -12,16 +13,16 @@ case class EtcNodeStatusExchangeState(handshakerConfiguration: EtcHandshakerConf
 
   import handshakerConfiguration._
 
-  def nextMessage: NextMessage =
+  def nextMessage(peerId: PeerId): NextMessage =
     NextMessage(
       messageToSend = createStatusMsg(),
       timeout = peerConfiguration.waitForStatusTimeout
     )
 
-  def applyResponseMessage: PartialFunction[Message, HandshakerState[PeerInfo]] = {
+  def applyResponseMessage(peerId: PeerId): PartialFunction[Message, HandshakerState[PeerInfo]] = {
 
     case remoteStatus: Status =>
-      log.info("Peer returned status ({})", remoteStatus)
+      log.info(s"Peer $peerId returned status ({})", remoteStatus)
 
       forkResolverOpt match {
         case Some(forkResolver) =>

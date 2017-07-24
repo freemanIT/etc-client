@@ -1,6 +1,6 @@
 package io.iohk.ethereum.network.handshaker
 
-import io.iohk.ethereum.network.ForkResolver
+import io.iohk.ethereum.network.{ForkResolver, PeerId}
 import io.iohk.ethereum.network.EtcPeerManagerActor.PeerInfo
 import io.iohk.ethereum.network.handshaker.Handshaker.NextMessage
 import io.iohk.ethereum.network.p2p.{Message, MessageSerializable}
@@ -14,13 +14,13 @@ case class EtcForkBlockExchangeState(handshakerConfiguration: EtcHandshakerConfi
 
   import handshakerConfiguration._
 
-  def nextMessage: NextMessage =
+  def nextMessage(peerId: PeerId): NextMessage =
     NextMessage(
       messageToSend = GetBlockHeaders(Left(forkResolver.forkBlockNumber), maxHeaders = 1, skip = 0, reverse = false),
       timeout = peerConfiguration.waitForChainCheckTimeout
     )
 
-  def applyResponseMessage: PartialFunction[Message, HandshakerState[PeerInfo]] = {
+  def applyResponseMessage(peerId: PeerId): PartialFunction[Message, HandshakerState[PeerInfo]] = {
 
     case BlockHeaders(blockHeaders) =>
 
@@ -30,19 +30,19 @@ case class EtcForkBlockExchangeState(handshakerConfiguration: EtcHandshakerConfi
         case Some(forkBlockHeader) =>
           val fork = forkResolver.recognizeFork(forkBlockHeader)
 
-          log.info("Peer is running the {} fork", fork)
+          log.info(s"Peer $peerId is running the {} fork", fork)
 
           if (forkResolver.isAccepted(fork)) {
-            log.info("Fork is accepted")
+            log.info(s"Fork is accepted ($peerId)")
             val peerInfo: PeerInfo = PeerInfo(remoteStatus, remoteStatus.totalDifficulty, true, forkBlockHeader.number)
             ConnectedState(peerInfo)
           } else {
-            log.warn("Fork is not accepted")
+            log.warn(s"Fork is not accepted ($peerId)")
             DisconnectedState[PeerInfo](Disconnect.Reasons.UselessPeer)
           }
 
         case None =>
-          log.info("Peer did not respond with fork block header")
+          log.info(s"Peer $peerId did not respond with fork block header")
           ConnectedState(PeerInfo(remoteStatus, remoteStatus.totalDifficulty, false, 0))
       }
 

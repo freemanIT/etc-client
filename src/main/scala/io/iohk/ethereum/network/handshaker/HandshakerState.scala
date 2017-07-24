@@ -1,5 +1,6 @@
 package io.iohk.ethereum.network.handshaker
 
+import io.iohk.ethereum.network.PeerId
 import io.iohk.ethereum.network.handshaker.Handshaker.{HandshakeResult, NextMessage}
 import io.iohk.ethereum.network.p2p.{Message, MessageSerializable}
 
@@ -12,7 +13,7 @@ trait InProgressState[T <: HandshakeResult] extends HandshakerState[T] {
     *
     * @return message to be sent with the timeout for awaiting its response
     */
-  def nextMessage: NextMessage
+  def nextMessage(peerId: PeerId): NextMessage
 
   /**
     * Processes a message and obtains the new state of the handshake after processing it,
@@ -21,7 +22,7 @@ trait InProgressState[T <: HandshakeResult] extends HandshakerState[T] {
     * @param receivedMessage, message received and to be processed by the current state
     * @return new state after the message was processed or None if the current state wasn't able to process it
     */
-  def applyMessage(receivedMessage: Message): Option[HandshakerState[T]] = applyResponseMessage.lift(receivedMessage)
+  def applyMessage(receivedMessage: Message, peerId: PeerId): Option[HandshakerState[T]] = applyResponseMessage(peerId).lift(receivedMessage)
 
   /**
     * Obtains the response to a message if there should be one.
@@ -43,7 +44,7 @@ trait InProgressState[T <: HandshakeResult] extends HandshakerState[T] {
     * Function that is only defined at the messages handled by the current state, returns the new state after processing them.
     * If defined, it processes a message and obtains a new state of the handshake
     */
-  protected def applyResponseMessage: PartialFunction[Message, HandshakerState[T]]
+  protected def applyResponseMessage(peerId: PeerId): PartialFunction[Message, HandshakerState[T]]
 
 }
 

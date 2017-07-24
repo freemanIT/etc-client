@@ -1,5 +1,6 @@
 package io.iohk.ethereum.network.handshaker
 
+import io.iohk.ethereum.network.PeerId
 import io.iohk.ethereum.network.handshaker.Handshaker.HandshakeComplete.{HandshakeFailure, HandshakeSuccess}
 import io.iohk.ethereum.network.handshaker.Handshaker.{HandshakeComplete, HandshakeResult, NextMessage}
 import io.iohk.ethereum.network.p2p.{Message, MessageSerializable}
@@ -15,9 +16,9 @@ trait Handshaker[T <: HandshakeResult] {
     *
     * @return next message to be sent or the result of the handshake
     */
-  def nextMessage: Either[HandshakeComplete[T], NextMessage] = handshakerState match {
+  def nextMessage(peerId: PeerId): Either[HandshakeComplete[T], NextMessage] = handshakerState match {
     case inProgressState: InProgressState[T] =>
-      Right(inProgressState.nextMessage)
+      Right(inProgressState.nextMessage(peerId))
     case ConnectedState(peerInfo) =>
       Left(HandshakeSuccess(peerInfo))
     case DisconnectedState(reason: Int) =>
@@ -30,9 +31,9 @@ trait Handshaker[T <: HandshakeResult] {
     * @param receivedMessage, message received and to be processed
     * @return handshaker after the message was processed or None if it doesn't change
     */
-  def applyMessage(receivedMessage: Message): Option[Handshaker[T]] = handshakerState match {
+  def applyMessage(receivedMessage: Message, peerId: PeerId): Option[Handshaker[T]] = handshakerState match {
     case inProgressState: InProgressState[T] =>
-      inProgressState.applyMessage(receivedMessage).map{ newState =>
+      inProgressState.applyMessage(receivedMessage, peerId).map{ newState =>
         copy(handshakerState = newState)
       }
     case _ => None

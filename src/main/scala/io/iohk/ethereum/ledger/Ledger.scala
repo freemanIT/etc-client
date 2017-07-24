@@ -45,7 +45,7 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
     } yield receipts
 
     if(blockExecResult.isRight)
-      log.debug(s"Block ${block.header.number} (with hash: ${block.header.hashAsHexString}) executed correctly")
+      log.trace(s"Block ${block.header.number} (with hash: ${block.header.hashAsHexString}) executed correctly")
     blockExecResult
   }
 
@@ -86,11 +86,11 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
         else blockchain.getWorldStateProxy _
     val initialWorld: blockchain.WS = getWorldStateProxyFn(block.header.number, blockchainConfig.accountStartNonce, parentStateRoot)
 
-    log.debug(s"About to execute ${block.body.transactionList.size} txs from block ${block.header.number} (with hash: ${block.header.hashAsHexString})")
+    log.trace(s"About to execute ${block.body.transactionList.size} txs from block ${block.header.number} (with hash: ${block.header.hashAsHexString})")
     val blockTxsExecResult = executeTransactions(block.body.transactionList, initialWorld, block.header, signedTransactionValidator)
     blockTxsExecResult match {
-      case Right(_) => log.debug(s"All txs from block ${block.header.hashAsHexString} were executed successfully")
-      case Left(error) => log.debug(s"Not all txs from block ${block.header.hashAsHexString} were executed correctly, due to ${error.reason}")
+      case Right(_) => log.trace(s"All txs from block ${block.header.hashAsHexString} were executed successfully")
+      case Left(error) => log.trace(s"Not all txs from block ${block.header.hashAsHexString} were executed correctly, due to ${error.reason}")
     }
     blockTxsExecResult
   }
@@ -105,7 +105,7 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
 
     result match {
       case Left(TxsExecutionError(stx, StateBeforeFailure(worldState, gas, receipts), reason)) =>
-        log.debug(s"failure while preparing block because of $reason in transaction with hash ${stx.hashAsHexString}")
+        log.trace(s"failure while preparing block because of $reason in transaction with hash ${stx.hashAsHexString}")
         val txIndex = signedTransactions.indexWhere(tx => tx.hash == stx.hash)
         executePreparedTransactions(signedTransactions.drop(txIndex + 1),
           worldState, blockHeader, signedTransactionValidator, gas, receipts, executed ++ signedTransactions.take(txIndex))
@@ -152,7 +152,7 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
             logs = logs
           )
 
-          log.debug(s"Receipt generated for tx ${stx.hashAsHexString}, $receipt")
+          log.trace(s"Receipt generated for tx ${stx.hashAsHexString}, $receipt")
 
           executeTransactions(otherStxs, newWorld, blockHeader, signedTransactionValidator, receipt.cumulativeGasUsed, acumReceipts :+ receipt)
         case Left(error) => Left(TxsExecutionError(stx, StateBeforeFailure(world, acumGas, acumReceipts), error.toString))
@@ -184,7 +184,7 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
   }
 
   private[ledger] def executeTransaction(stx: SignedTransaction, blockHeader: BlockHeader, world: InMemoryWorldStateProxy): TxResult = {
-    log.debug(s"Transaction ${stx.hashAsHexString} execution start")
+    log.trace(s"Transaction ${stx.hashAsHexString} execution start")
     val gasPrice = UInt256(stx.tx.gasPrice)
     val gasLimit = stx.tx.gasLimit
     val config = EvmConfig.forBlock(blockHeader.number, blockchainConfig)
@@ -210,7 +210,7 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
 
     val world2 = (refundGasFn andThen payMinerForGasFn andThen deleteAccountsFn andThen persistStateFn)(resultWithErrorHandling.world)
 
-    log.debug(
+    log.trace(
       s"""Transaction ${stx.hashAsHexString} execution end. Summary:
          | - Error: ${result.error}.
          | - Total Gas to Refund: $totalGasToRefund
@@ -272,13 +272,13 @@ class LedgerImpl(vm: VM, blockchainConfig: BlockchainConfig) extends Ledger with
     val minerAccount = getAccountToPay(minerAddress, worldStateProxy)
     val minerReward = blockRewardCalculator.calcBlockMinerReward(block.header.number, block.body.uncleNodesList.size)
     val afterMinerReward = worldStateProxy.saveAccount(minerAddress, minerAccount.increaseBalance(UInt256(minerReward)))
-    log.debug(s"Paying block ${block.header.number} reward of $minerReward to miner with account address $minerAddress")
+    log.trace(s"Paying block ${block.header.number} reward of $minerReward to miner with account address $minerAddress")
 
     block.body.uncleNodesList.foldLeft(afterMinerReward) { (ws, ommer) =>
       val ommerAddress = Address(ommer.beneficiary)
       val account = getAccountToPay(ommerAddress, ws)
       val ommerReward = blockRewardCalculator.calcOmmerMinerReward(block.header.number, ommer.number)
-      log.debug(s"Paying block ${block.header.number} reward of $ommerReward to ommer with account address $ommerAddress")
+      log.trace(s"Paying block ${block.header.number} reward of $ommerReward to ommer with account address $ommerAddress")
       ws.saveAccount(ommerAddress, account.increaseBalance(UInt256(ommerReward)))
     }
   }
